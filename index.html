@@ -235,6 +235,28 @@
                         notify(errorMsg, 'error'); 
                     }
                 };
+
+                const handleResetPassword = async () => {
+                    const emailField = document.querySelector('input[name="email"]');
+                    const emailInput = emailField ? emailField.value : '';
+                    
+                    if (!emailInput) {
+                        notify('Silakan isi kolom Email terlebih dahulu untuk mereset password.', 'error');
+                        return;
+                    }
+                    
+                    try {
+                        await auth.sendPasswordResetEmail(emailInput);
+                        notify('Tautan reset password telah dikirim ke email Anda.', 'success');
+                    } catch (err) {
+                        let errorMsg = 'Gagal mengirim email reset.';
+                        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email') {
+                            errorMsg = 'Email tidak valid atau belum terdaftar.';
+                        }
+                        notify(errorMsg, 'error');
+                    }
+                };
+
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
                         <Card className="w-full max-w-md">
@@ -248,8 +270,10 @@
                                 <Input label="Password" type="password" name="password" required />
                                 <Button type="submit" className="w-full py-3">Masuk ke Sistem</Button>
                             </form>
-                            <div className="mt-6 text-center text-xs text-slate-400">
-                                <p>Admin pertama? Buat akun di Firebase Console &gt; Authentication, lalu tambahkan dokumen di koleksi "users" dengan UID Anda dan role "ADMIN".</p>
+                            <div className="mt-6 text-center text-sm">
+                                <button type="button" onClick={handleResetPassword} className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors">
+                                    Lupa Password?
+                                </button>
                             </div>
                         </Card>
                     </div>
