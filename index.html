@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem Keuangan TSM SMK N 1 Gombong</title>
+    <title>Sistem Keuangan TSM SMK Negeri 1 Gombong</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -126,7 +126,8 @@
             
             // UI State
             const [currentView, setCurrentView] = useState('dashboard');
-            const [isSidebarOpen, setSidebarOpen] = useState(true);
+            // Ubah inisialisasi agar sidebar otomatis tertutup jika dibuka di HP (lebar layar < 1024px)
+            const [isSidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 1024);
             const [notification, setNotification] = useState(null);
 
             // Data State
@@ -563,7 +564,7 @@
                         <body>
                             <div class="header">
                                 <h1>SISKEU TSM</h1>
-                                <p>Unit Produksi Bengkel - SMK N 1 Gombong</p>
+                                <p>Unit Produksi Bengkel - SMK Negeri 1 Gombong</p>
                             </div>
                             <div class="title">Kwitansi / Invoice</div>
                             <table class="info-table">
@@ -807,7 +808,7 @@
                 const printHeaderHTML = `
                     <div class="header">
                         <h1>LAPORAN BULANAN SISKEU TSM</h1>
-                        <p>SMK N 1 Gombong</p>
+                        <p>SMK Negeri 1 Gombong</p>
                         <p>Periode: <strong>${new Date(filterMonth + '-01').toLocaleDateString('id-ID', {month: 'long', year: 'numeric'})}</strong></p>
                     </div>
                     <style>
@@ -1019,14 +1020,14 @@
 
             return (
                 <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 overflow-hidden">
-                    {/* Overlay Mobile */}
-                    {!isSidebarOpen && window.innerWidth < 1024 && <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-20 lg:hidden" onClick={() => setSidebarOpen(true)}/>}
+                    {/* Overlay Mobile - Diperbaiki logikanya: Muncul saat sidebar DIBUKA (isSidebarOpen), klik untuk MENUTUP */}
+                    {isSidebarOpen && <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-20 lg:hidden" onClick={() => setSidebarOpen(false)}/>}
 
                     <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-72 bg-white border-r border-slate-100 flex flex-col transition-transform duration-300 ${!isSidebarOpen ? '-translate-x-full lg:translate-x-0' : 'translate-x-0'}`}>
                         <div className="p-8 pb-4 flex justify-between items-center">
                             <div>
                                 <h1 className="font-black text-2xl text-slate-800 tracking-tight">SISKEU<span className="text-blue-600">TSM</span></h1>
-                                <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">SMK N 1 Gombong</p>
+                                <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">SMK Negeri 1 Gombong</p>
                             </div>
                             <button className="lg:hidden p-2 bg-slate-50 rounded-full" onClick={() => setSidebarOpen(false)}><Icon name="close" size={18} /></button>
                         </div>
