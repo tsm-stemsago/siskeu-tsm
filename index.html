@@ -529,7 +529,7 @@
                 };
 
                 const handleCompleteWO = async (wo) => {
-                    if(!window.confirm('Selesaikan pekerjaan ini? Tagihan akan diterbitkan (Masuk sebagai Piutang).')) return;
+                    if(!window.confirm('Selesaikan pekerjaan ini? Tagihan akan diterbitkan (Masuk sebagai Belum Dibayar).')) return;
                     
                     const batch = db.batch();
                     batch.update(db.collection('upWorkOrders').doc(wo.id), { status: 'DONE' });
@@ -651,7 +651,7 @@
                                 <table class="totals">
                                     <tr class="grand-total"><td style="text-align:left;">Total Tagihan</td><td>${formatIDR(wo.totalAmount)}</td></tr>
                                     <tr class="paid"><td style="text-align:left;">Telah Dibayar</td><td>${formatIDR(wo.paidAmount || 0)}</td></tr>
-                                    <tr class="due"><td style="text-align:left;">Sisa Piutang</td><td>${formatIDR(wo.totalAmount - (wo.paidAmount || 0))}</td></tr>
+                                    <tr class="due"><td style="text-align:left;">Belum Dibayar</td><td>${formatIDR(wo.totalAmount - (wo.paidAmount || 0))}</td></tr>
                                 </table>
                             </div>
                             <div class="footer">
@@ -684,7 +684,7 @@
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm">
                                     <thead className="bg-slate-50 text-slate-500">
-                                        <tr><th className="p-4">WO / Pelanggan</th><th className="p-4 text-right">Total Tagihan</th><th className="p-4 text-right">Sisa Piutang</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi</th></tr>
+                                        <tr><th className="p-4">WO / Pelanggan</th><th className="p-4 text-right">Total Tagihan</th><th className="p-4 text-right">Belum Dibayar</th><th className="p-4 text-center">Status</th><th className="p-4 text-center">Aksi</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {workOrders.map(wo => {
