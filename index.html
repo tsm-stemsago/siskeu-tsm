@@ -349,20 +349,17 @@
             const ViewKas = () => {
                 const [isFormOpen, setIsFormOpen] = useState(false);
                 const [txType, setTxType] = useState('INCOME');
-                const [form, setForm] = useState({ description: '', amount: '' });
+                const [form, setForm] = useState({ description: '', amount: '', borrower: '', date: new Date().toISOString().split('T')[0] });
 
                 // Menghitung running balance (saldo berjalan)
                 const kasTxsWithBalance = useMemo(() => {
-                    // Karena data diurutkan dari terbaru (desc), kita balik (reverse) dulu
-                    // untuk menghitung saldo dari yang paling awal/lama.
-                    const reversed = [...kasTxs].reverse();
+                    const sorted = [...kasTxs].sort((a, b) => a.date - b.date);
                     let currentBalance = 0;
-                    const withBalance = reversed.map(tx => {
-                        if (tx.type === 'INCOME') currentBalance += tx.amount;
+                    const withBalance = sorted.map(tx => {
+                        if (tx.type === 'INCOME' || tx.type === 'LOAN_PAYMENT') currentBalance += tx.amount;
                         else currentBalance -= tx.amount;
                         return { ...tx, balance: currentBalance };
                     });
-                    // Balikkan lagi agar yang terbaru berada di atas
                     return withBalance.reverse();
                 }, [kasTxs]);
 
@@ -375,26 +372,43 @@
                     const txId = generateId();
                     const journalId = generateId();
                     
+                    let desc = form.description;
+                    let accountName = 'Pemasukan Kas';
+
+                    if (txType === 'EXPENSE') {
+                        accountName = 'Beban Kas';
+                    } else if (txType === 'LOAN') {
+                        desc = `Pencairan Pinjaman: ${form.borrower} - ${form.description}`;
+                        accountName = 'Piutang Pinjaman';
+                    } else if (txType === 'LOAN_PAYMENT') {
+                        desc = `Pengembalian Pinjaman: ${form.borrower} - ${form.description}`;
+                        accountName = 'Penerimaan Pengembalian Pinjaman';
+                    }
+
+                    const txDate = form.date ? new Date(form.date).getTime() : Date.now();
+
                     const tx = {
-                        id: txId, txNumber: generateNum('KAS'), date: Date.now(), 
-                        type: txType, category: 'Umum', description: form.description, 
+                        id: txId, txNumber: generateNum('KAS'), date: txDate, 
+                        type: (txType === 'EXPENSE' || txType === 'LOAN') ? 'EXPENSE' : 'INCOME', 
+                        category: txType, description: desc, 
                         amount, createdBy: user.uid
                     };
                     batch.set(db.collection('kasTransactions').doc(txId), tx);
 
                     const journal = {
-                        id: journalId, date: tx.date, module: 'KAS', referenceId: txId,
-                        description: tx.description, createdBy: user.uid,
-                        account: txType === 'INCOME' ? 'Pemasukan Kas' : 'Beban Kas',
-                        debit: txType === 'INCOME' ? amount : 0,
-                        credit: txType === 'EXPENSE' ? amount : 0
+                        id: journalId, date: txDate, module: 'KAS', referenceId: txId,
+                        description: desc, createdBy: user.uid,
+                        account: accountName,
+                        debit: (txType === 'INCOME' || txType === 'LOAN_PAYMENT') ? amount : 0,
+                        credit: (txType === 'EXPENSE' || txType === 'LOAN') ? amount : 0
                     };
                     batch.set(db.collection('journalEntries').doc(journalId), journal);
 
                     try {
                         await batch.commit();
-                        setIsFormOpen(false); setForm({description:'', amount:''});
-                        notify(`Berhasil mencatat ${txType === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}`);
+                        setIsFormOpen(false); 
+                        setForm({description:'', amount:'', borrower:'', date: new Date().toISOString().split('T')[0]});
+                        notify('Berhasil mencatat transaksi kas');
                     } catch (e) { notify('Gagal menyimpan. Cek Otorisasi/Validasi.', 'error'); }
                 };
 
@@ -407,10 +421,7 @@
                         <Card className="p-0 overflow-hidden">
                             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                                 <h3 className="font-bold text-slate-700">Riwayat Transaksi</h3>
-                                <div className="flex gap-2">
-                                    <Button variant="danger" onClick={() => { setTxType('EXPENSE'); setIsFormOpen(true); }}><Icon name="arrow_upward" size={16} /> Pengeluaran</Button>
-                                    <Button variant="success" onClick={() => { setTxType('INCOME'); setIsFormOpen(true); }}><Icon name="arrow_downward" size={16} /> Pemasukan</Button>
-                                </div>
+                                <Button onClick={() => setIsFormOpen(true)}><Icon name="add" size={16} /> Tambah Transaksi</Button>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm">
@@ -418,30 +429,57 @@
                                         <tr><th className="p-4">Tanggal</th><th className="p-4">No. Ref</th><th className="p-4">Keterangan</th><th className="p-4 text-right">Nominal</th><th className="p-4 text-right">Saldo</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {kasTxsWithBalance.map(tx => (
-                                            <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="p-4 text-slate-600">{new Date(tx.date).toLocaleDateString('id-ID')}</td>
-                                                <td className="p-4 font-mono text-xs text-slate-400">{tx.txNumber}</td>
-                                                <td className="p-4 font-medium text-slate-800">{tx.description}</td>
-                                                <td className={`p-4 text-right font-bold ${tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {tx.type === 'INCOME' ? '+' : '-'}{formatIDR(tx.amount)}
-                                                </td>
-                                                <td className="p-4 text-right font-bold text-slate-700">
-                                                    {formatIDR(tx.balance)}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {kasTxsWithBalance.map(tx => {
+                                            const isPlus = tx.type === 'INCOME';
+                                            return (
+                                                <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="p-4 text-slate-600">{new Date(tx.date).toLocaleDateString('id-ID')}</td>
+                                                    <td className="p-4 font-mono text-xs text-slate-400">{tx.txNumber}</td>
+                                                    <td className="p-4 font-medium text-slate-800">{tx.description}</td>
+                                                    <td className={`p-4 text-right font-bold ${isPlus ? 'text-green-600' : 'text-red-600'}`}>
+                                                        {isPlus ? '+' : '-'}{formatIDR(tx.amount)}
+                                                    </td>
+                                                    <td className="p-4 text-right font-bold text-slate-700">
+                                                        {formatIDR(tx.balance)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                         {kasTxs.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-500">Belum ada transaksi</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
                         </Card>
 
-                        <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={`Catat ${txType === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'} Kas`}>
+                        <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title="Tambah Data Transaksi Kas">
                             <form onSubmit={handleSaveTx} className="space-y-4">
-                                <Input label="Keterangan Lengkap" required value={form.description} onChange={(e)=>setForm({...form, description: e.target.value})} />
+                                <div className="flex flex-col gap-1.5 w-full">
+                                    <label className="text-sm font-medium text-slate-700">Jenis Transaksi <span className="text-red-500">*</span></label>
+                                    <select 
+                                        value={txType} 
+                                        onChange={(e) => setTxType(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                    >
+                                        <option value="INCOME">Pemasukan</option>
+                                        <option value="EXPENSE">Pengeluaran</option>
+                                        <option value="LOAN">Pinjaman (Kas Keluar)</option>
+                                        <option value="LOAN_PAYMENT">Pengembalian Pinjaman (Kas Masuk)</option>
+                                    </select>
+                                </div>
+
+                                <Input label="Tanggal Transaksi" type="date" required value={form.date} onChange={(e)=>setForm({...form, date: e.target.value})} />
+
+                                {(txType === 'LOAN' || txType === 'LOAN_PAYMENT') && (
+                                    <Input label="Nama Peminjam / Pemberi" required value={form.borrower} onChange={(e)=>setForm({...form, borrower: e.target.value})} placeholder="Contoh: Budi (Guru)" />
+                                )}
+
+                                <Input label="Keterangan / Keperluan" required value={form.description} onChange={(e)=>setForm({...form, description: e.target.value})} placeholder="Deskripsi transaksi..." />
                                 <Input label="Nominal (Rp)" type="number" min="1" required value={form.amount} onChange={(e)=>setForm({...form, amount: e.target.value})} />
-                                <div className="pt-6 flex justify-end gap-3"><Button variant="secondary" onClick={()=>setIsFormOpen(false)}>Batal</Button><Button type="submit">Simpan Transaksi</Button></div>
+                                
+                                <div className="pt-6 flex justify-end gap-3">
+                                    <Button variant="secondary" onClick={()=>setIsFormOpen(false)}>Batal</Button>
+                                    <Button type="submit">Simpan Transaksi</Button>
+                                </div>
                             </form>
                         </Modal>
                     </div>
