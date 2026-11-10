@@ -223,7 +223,7 @@
             // --- FINANCIAL ENGINE (CALCULATIONS) ---
             const financials = useMemo(() => {
                 let kasBalance = 0, kasIn = 0, kasOut = 0;
-                let upKasBalance = 0, upReceivables = 0, upRevenue = 0;
+                let upKasBalance = 0, upReceivables = 0, upRevenue = 0, upHPP = 0;
 
                 kasTxs.forEach(tx => {
                     if (tx.type === 'INCOME') { kasIn += tx.amount; kasBalance += tx.amount; }
@@ -231,17 +231,32 @@
                 });
 
                 workOrders.forEach(wo => {
-                    upKasBalance += wo.paidAmount || 0;
+                    const paid = wo.paidAmount || 0;
+                    upKasBalance += paid;
                     
                     if (wo.status === 'DONE' || wo.status === 'DELIVERED') {
-                        upRevenue += wo.totalAmount;
-                        upReceivables += (wo.totalAmount - (wo.paidAmount || 0));
+                        // Total tagihan secara keseluruhan
+                        upReceivables += (wo.totalAmount - paid);
+                        
+                        // Pendapatan (Omset) dan HPP dihitung proporsional berdasarkan yang SUDAH DIBAYAR
+                        if (wo.totalAmount > 0 && paid > 0) {
+                            const ratio = paid / wo.totalAmount;
+                            upRevenue += (wo.totalAmount * ratio);
+                            
+                            (wo.items || []).forEach(item => {
+                                if (item.type === 'PART') {
+                                    upHPP += ((Number(item.hpp) || 0) * Number(item.qty)) * ratio;
+                                }
+                            });
+                        }
                     }
                 });
 
+                const upNetProfit = upRevenue - upHPP;
+
                 return { 
                     kasBalance, kasIn, kasOut,
-                    upKasBalance, upRevenue, upReceivables
+                    upKasBalance, upRevenue, upReceivables, upHPP, upNetProfit
                 };
             }, [kasTxs, workOrders]);
 
@@ -356,17 +371,21 @@
                     {(profile?.role === 'ADMIN' || profile?.role === 'BENDAHARA_UP') && (
                         <div className="space-y-4 pt-4 border-t border-slate-200">
                             <h3 className="font-semibold text-slate-700 flex items-center gap-2"><Icon name="build" size={18}/> Kinerja Unit Produksi Bengkel</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <Card className="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-none">
-                                    <p className="text-emerald-100 text-sm font-medium mb-1">Total Pendapatan (WO)</p>
-                                    <h3 className="text-2xl font-bold">{formatIDR(financials.upRevenue)}</h3>
+                                    <p className="text-emerald-100 text-sm font-medium mb-1">Laba Bersih UP</p>
+                                    <h3 className="text-2xl font-bold">{formatIDR(financials.upNetProfit)}</h3>
+                                </Card>
+                                <Card>
+                                    <p className="text-slate-500 text-sm font-medium mb-1">Total Pendapatan (Omset)</p>
+                                    <h3 className="text-xl font-bold text-slate-800">{formatIDR(financials.upRevenue)}</h3>
                                 </Card>
                                 <Card>
                                     <p className="text-slate-500 text-sm font-medium mb-1">Penerimaan Kas UP</p>
-                                    <h3 className="text-xl font-bold text-slate-800">{formatIDR(financials.upKasBalance)}</h3>
+                                    <h3 className="text-xl font-bold text-green-600">{formatIDR(financials.upKasBalance)}</h3>
                                 </Card>
                                 <Card>
-                                    <p className="text-slate-500 text-sm font-medium mb-1">Piutang Pelanggan (WO Selesai)</p>
+                                    <p className="text-slate-500 text-sm font-medium mb-1">Belum Dibayar (WO Selesai)</p>
                                     <h3 className="text-xl font-bold text-red-600">{formatIDR(financials.upReceivables)}</h3>
                                 </Card>
                             </div>
@@ -553,7 +572,7 @@
                     date: new Date().toISOString().split('T')[0] 
                 });
                 const [woItems, setWoItems] = useState([]);
-                const [newItem, setNewItem] = useState({ type: 'JASA', name: '', price: '', qty: '1' });
+                const [newItem, setNewItem] = useState({ type: 'JASA', name: '', price: '', hpp: '', qty: '1' });
 
                 // Mengurutkan LAMA ke TERBARU
                 const sortedWorkOrders = useMemo(() => {
@@ -567,10 +586,14 @@
                 const handleAddItem = () => {
                     if(!newItem.name || !newItem.price || !newItem.qty) return;
                     setWoItems([...woItems, { 
-                        id: generateId(), type: newItem.type, name: newItem.name, 
-                        price: parseInt(newItem.price), qty: parseInt(newItem.qty) 
+                        id: generateId(), 
+                        type: newItem.type, 
+                        name: newItem.name, 
+                        price: parseInt(newItem.price), 
+                        hpp: newItem.type === 'PART' ? parseInt(newItem.hpp || 0) : 0,
+                        qty: parseInt(newItem.qty) 
                     }]);
-                    setNewItem({ type: 'JASA', name: '', price: '', qty: '1' });
+                    setNewItem({ type: 'JASA', name: '', price: '', hpp: '', qty: '1' });
                 };
 
                 const handleRemoveItem = (id) => setWoItems(woItems.filter(item => item.id !== id));
@@ -829,15 +852,22 @@
                                         ))}
                                         
                                         {/* Input Tambah Item Inline */}
-                                        <div className="flex gap-2 items-start pt-2">
-                                            <select value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value})} className="rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                                <option value="JASA">Jasa</option>
-                                                <option value="PART">Part</option>
-                                            </select>
-                                            <input type="text" placeholder="Nama Pekerjaan/Part" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="flex-1 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                            <input type="number" placeholder="Harga Satuan" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-28 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                            <input type="number" placeholder="Qty" min="1" value={newItem.qty} onChange={e => setNewItem({...newItem, qty: e.target.value})} className="w-16 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                            <button type="button" onClick={handleAddItem} className="bg-slate-100 text-slate-700 p-2.5 rounded-xl hover:bg-slate-200 border border-slate-200 transition-colors"><Icon name="add" size={20}/></button>
+                                        <div className="flex flex-col gap-2 pt-2 bg-slate-50/80 p-3 rounded-2xl border border-slate-200">
+                                            <div className="flex gap-2 items-center">
+                                                <select value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value})} className="rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                                    <option value="JASA">Jasa</option>
+                                                    <option value="PART">Part</option>
+                                                </select>
+                                                <input type="text" placeholder="Nama Pekerjaan / Sparepart" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="flex-1 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                                                <input type="number" placeholder="Qty" min="1" value={newItem.qty} onChange={e => setNewItem({...newItem, qty: e.target.value})} className="w-16 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                                            </div>
+                                            <div className="flex gap-2 items-center">
+                                                <input type="number" placeholder="Harga Jual / Satuan (Rp)" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="flex-1 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                                                {newItem.type === 'PART' && (
+                                                    <input type="number" placeholder="HPP / Modal Satuan (Rp)" value={newItem.hpp} onChange={e => setNewItem({...newItem, hpp: e.target.value})} className="flex-1 rounded-xl border border-slate-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-amber-50 border-amber-200" />
+                                                )}
+                                                <button type="button" onClick={handleAddItem} className="bg-blue-600 text-white px-4 py-2.5 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1 font-semibold text-sm"><Icon name="add" size={18}/> Tambah</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="bg-slate-50 p-4 flex justify-between items-center border-t border-slate-200 font-bold text-lg">
@@ -943,7 +973,7 @@
                     return getLocalMonth(tx.date) === filterMonth;
                 });
 
-                // HANYA ambil Work Order yang sudah selesai (DONE/DELIVERED) sebagai Pendapatan Sah
+                // HANYA ambil Work Order yang sudah selesai (DONE/DELIVERED)
                 const filteredUP = workOrders.filter(wo => {
                     return getLocalMonth(wo.date) === filterMonth && (wo.status === 'DONE' || wo.status === 'DELIVERED');
                 });
@@ -953,10 +983,30 @@
                 const totalKasOut = filteredKas.filter(t => t.type === 'EXPENSE').reduce((acc, t) => acc + t.amount, 0);
                 const netKas = totalKasIn - totalKasOut;
 
-                // Kalkulasi Total UP Bulan Ini
-                const totalUPRevenue = filteredUP.reduce((acc, w) => acc + w.totalAmount, 0);
-                const totalUPPaid = filteredUP.reduce((acc, w) => acc + (w.paidAmount || 0), 0);
-                const totalUPReceivable = totalUPRevenue - totalUPPaid;
+                // Kalkulasi Total UP Bulan Ini (Berdasarkan proporsi yang sudah dibayar)
+                let totalUPRevenue = 0;
+                let totalUPPaid = 0;
+                let totalUPReceivable = 0;
+                let totalUPHPP = 0;
+
+                filteredUP.forEach(wo => {
+                    const paid = wo.paidAmount || 0;
+                    totalUPPaid += paid;
+                    totalUPReceivable += (wo.totalAmount - paid);
+
+                    if (wo.totalAmount > 0 && paid > 0) {
+                        const ratio = paid / wo.totalAmount;
+                        totalUPRevenue += (wo.totalAmount * ratio);
+                        
+                        (wo.items || []).forEach(item => {
+                            if (item.type === 'PART') {
+                                totalUPHPP += ((item.hpp || 0) * item.qty) * ratio;
+                            }
+                        });
+                    }
+                });
+
+                const totalUPNetProfit = totalUPRevenue - totalUPHPP;
 
                 const printHeaderHTML = `
                     <div class="kop-surat" style="margin-bottom: 20px;">
@@ -1068,14 +1118,15 @@
                             ${printHeaderHTML}
                             <h3 style="text-align:center; margin-bottom: 20px; font-family: Arial, sans-serif;">LAPORAN UNIT PRODUKSI BENGKEL</h3>
                             
-                            <div class="summary">
-                                <div class="summary-box"><h4>TOTAL PENDAPATAN (WO)</h4><p style="color: #2563eb;">${formatIDR(totalUPRevenue)}</p></div>
-                                <div class="summary-box"><h4>TOTAL DIBAYAR (KAS MASUK)</h4><p style="color: #16a34a;">${formatIDR(totalUPPaid)}</p></div>
-                                <div class="summary-box"><h4>TOTAL PIUTANG</h4><p style="color: #dc2626;">${formatIDR(totalUPReceivable)}</p></div>
+                            <div class="summary" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px;">
+                                <div class="summary-box"><h4>TOTAL PENDAPATAN (OMSET)</h4><p style="color: #2563eb;">${formatIDR(totalUPRevenue)}</p></div>
+                                <div class="summary-box"><h4>TOTAL HPP / MODAL PART</h4><p style="color: #d97706;">${formatIDR(totalUPHPP)}</p></div>
+                                <div class="summary-box" style="background: #ecfdf5; border-color: #a7f3d0;"><h4>LABA BERSIH UP</h4><p style="color: #059669;">${formatIDR(totalUPNetProfit)}</p></div>
+                                <div class="summary-box"><h4>TOTAL PIUTANG / BELUM DIBAYAR</h4><p style="color: #dc2626;">${formatIDR(totalUPReceivable)}</p></div>
                             </div>
 
                             <table>
-                                <thead><tr><th style="width:5%;">No</th><th style="width:12%;">Tanggal</th><th style="width:25%;">No WO & Pelanggan</th><th style="width:10%;">Status</th><th style="width:16%;" class="text-right">Total Tagihan</th><th style="width:16%;" class="text-right">Telah Dibayar</th><th style="width:16%;" class="text-right">Sisa Piutang</th></tr></thead>
+                                <thead><tr><th style="width:5%;">No</th><th style="width:12%;">Tanggal</th><th style="width:25%;">No WO & Pelanggan</th><th style="width:10%;">Status</th><th style="width:16%;" class="text-right">Total Tagihan</th><th style="width:16%;" class="text-right">Telah Dibayar</th><th style="width:16%;" class="text-right">Belum Dibayar</th></tr></thead>
                                 <tbody>
                                     ${rows || '<tr><td colspan="7" class="text-center">Tidak ada Work Order pada bulan ini.</td></tr>'}
                                 </tbody>
@@ -1151,23 +1202,27 @@
                                     <h3 className="font-bold text-emerald-900 flex items-center gap-2"><Icon name="build" /> Rekap Unit Produksi</h3>
                                     <Button onClick={handlePrintUP} variant="outline" className="!bg-white border-slate-200"><Icon name="print" size={18}/> Cetak Laporan</Button>
                                 </div>
-                                <div className="grid grid-cols-3 divide-x border-b border-slate-100 bg-white">
+                                <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y border-b border-slate-100 bg-white">
                                     <div className="p-5 text-center">
-                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Pendapatan</p>
+                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Omset</p>
                                         <p className="text-xl font-black text-blue-600">{formatIDR(totalUPRevenue)}</p>
                                     </div>
                                     <div className="p-5 text-center">
-                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Telah Dibayar (Kas Masuk)</p>
-                                        <p className="text-xl font-black text-green-600">{formatIDR(totalUPPaid)}</p>
+                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total HPP Part</p>
+                                        <p className="text-xl font-black text-amber-600">{formatIDR(totalUPHPP)}</p>
+                                    </div>
+                                    <div className="p-5 text-center bg-emerald-50/50">
+                                        <p className="text-xs font-bold text-emerald-700 uppercase mb-1">Laba Bersih UP</p>
+                                        <p className="text-xl font-black text-emerald-600">{formatIDR(totalUPNetProfit)}</p>
                                     </div>
                                     <div className="p-5 text-center">
-                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Piutang</p>
+                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Belum Dibayar</p>
                                         <p className="text-xl font-black text-red-600">{formatIDR(totalUPReceivable)}</p>
                                     </div>
                                 </div>
                                 <div className="p-6 bg-slate-50 text-center text-slate-500 text-sm">
                                     Menampilkan {filteredUP.length} data Work Order pada bulan {new Date(filterMonth + '-01').toLocaleDateString('id-ID', {month: 'long', year: 'numeric'})}.
-                                    Klik tombol Cetak untuk melihat rincian tabel.
+                                    Klik tombol Cetak untuk melihat rincian laporan lengkap.
                                 </div>
                             </Card>
                         )}
